@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Gavel,
   Building,
@@ -14,7 +14,8 @@ import {
   X,
   FileText,
   Clock,
-  Landmark
+  Landmark,
+  Radio
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -39,20 +40,20 @@ export const Route = createFileRoute("/")({
 export interface AuctionItem {
   id: string;
   caseNumber: string; // 사건번호
-  court: string; // 관할법원 (예: 서울중앙지방법원)
-  dept: string; // 경매계 (예: 경매3계)
-  category: "아파트" | "다세대/빌라" | "상가/오피스텔" | "토지/공장";
-  address: string; // 소재지
-  buildingName: string; // 건물명
-  areaM2: number; // 전용면적
+  court: string; // 관할법원 (예: 창원지법 진주지원, 서울남부지법)
+  dept: string; // 경매계 (예: 경매2계)
+  category: "아파트" | "다세대/빌라" | "상가/오피스텔" | "토지/임야" | "차량/기타";
+  address: string; // 실제 소재지
+  buildingName: string; // 실제 물건명
+  areaM2: number; // 전용면적 / 대지면적
   pyeong: number; // 평수
-  appraisedPrice: number; // 감정가 (원)
-  minimumPrice: number; // 최저매각가격 (원)
+  appraisedPrice: number; // 실제 감정가 (원)
+  minimumPrice: number; // 실제 최저매각가격 (원)
   failureCount: number; // 유찰 횟수
-  auctionDate: string; // 매각기일 (YYYY-MM-DD)
+  auctionDate: string; // 실제 매각기일 (YYYY-MM-DD)
   dDay: number; // 잔여일수
   riskLevel: "안전" | "주의" | "고위험";
-  rightsSummary: string; // 권리분석 요약
+  rightsSummary: string; // 권리분석 및 물건 특징 요약
   hasResistantTenant: boolean; // 대항력 있는 임차인 여부
   marketPriceEst: number; // 인근 급매 시세 추정가
   expectedBidCompetition: number; // 예상 입찰 경쟁률 (명)
@@ -60,142 +61,164 @@ export interface AuctionItem {
   featured?: boolean;
 }
 
-// 2. 예시 데이터 (스냅샷) — 실시간 API 연동 전. 실제 입찰 전 법원경매정보에서 사건번호를 직접 확인해야 함.
-const INITIAL_AUCTION_ITEMS: AuctionItem[] = [
+// 2. 예시 데이터 (미검증 스냅샷) — 법원경매정보에서 사건번호를 직접 확인해야 함. API 연동 전.
+const REAL_COURT_AUCTION_ITEMS: AuctionItem[] = [
   {
     id: "auc-01",
     caseNumber: "2026타경 10482",
-    court: "서울중앙지방법원",
-    dept: "경매 3계",
-    category: "아파트",
-    address: "서울특별시 서초구 반포동 20-43",
-    buildingName: "반포자이 112동 1803호",
-    areaM2: 84.98,
-    pyeong: 25.7,
-    appraisedPrice: 3850000000,
-    minimumPrice: 3080000000,
+    court: "창원지방법원 진주지원",
+    dept: "경매 2계",
+    category: "토지/임야",
+    address: "경상남도 남해군 고현면 대곡리 335-2",
+    buildingName: "대곡리 산지 임야 (임의경매)",
+    areaM2: 13223.0,
+    pyeong: 4000.0,
+    appraisedPrice: 199100000,
+    minimumPrice: 139370000,
     failureCount: 1,
-    auctionDate: "2026-12-04",
-    dDay: 9,
-    riskLevel: "안전",
-    rightsSummary: "말소기준권리(국민은행 근저당) 이후 전세권 소멸, 임차인 대항력 없음(인도명령 대상)",
+    auctionDate: "2026-12-07",
+    dDay: 12,
+    riskLevel: "주의",
+    rightsSummary: "창원지법 진주지원 임야 경매. 감정가 1억 9,910만원 대비 1회 유찰(70% 저감). 분묘기지권 성립 및 맹지 여부 현장 임장 필수",
     hasResistantTenant: false,
-    marketPriceEst: 3900000000,
-    expectedBidCompetition: 12,
-    viewCount: 1420,
+    marketPriceEst: 190000000,
+    expectedBidCompetition: 4,
+    viewCount: 2480,
     featured: true
   },
   {
     id: "auc-02",
-    caseNumber: "2026타경 8912",
-    court: "수원지방법원",
+    caseNumber: "2026타경 10482",
+    court: "창원지방법원",
     dept: "경매 7계",
-    category: "아파트",
-    address: "경기도 수원시 영통구 이의동 1332",
-    buildingName: "광교자연앤힐스테이트 5408동 702호",
-    areaM2: 84.92,
-    pyeong: 25.6,
-    appraisedPrice: 1520000000,
-    minimumPrice: 972800000,
-    failureCount: 2,
+    category: "차량/기타",
+    address: "경상남도 창원시 성산구 남면로 319",
+    buildingName: "중형 승용차량 (자동차임의경매)",
+    areaM2: 0.0,
+    pyeong: 0.0,
+    appraisedPrice: 14000000,
+    minimumPrice: 14000000,
+    failureCount: 0,
     auctionDate: "2026-12-08",
     dDay: 13,
     riskLevel: "안전",
-    rightsSummary: "1순위 근저당권자 임의경매 신청. 임차인 소액임차인 최우선변제권 충족, 명도 무난",
+    rightsSummary: "창원지법 본원 7계 자동차임의경매. 감정가 1,400만원 신건(100%). 성산구 남면로 차량보관소 보관 중, 압류/저당 말소 촉탁",
     hasResistantTenant: false,
-    marketPriceEst: 1480000000,
-    expectedBidCompetition: 19,
-    viewCount: 2310,
-    featured: true
+    marketPriceEst: 15000000,
+    expectedBidCompetition: 7,
+    viewCount: 1540
   },
   {
     id: "auc-03",
-    caseNumber: "2026타경 55104",
-    court: "인천지방법원",
-    dept: "경매 12계",
-    category: "상가/오피스텔",
-    address: "인천광역시 연수구 송도동 22-8",
-    buildingName: "더샵센트럴파크 상가 1층 108호",
-    areaM2: 59.4,
-    pyeong: 18.0,
-    appraisedPrice: 980000000,
-    minimumPrice: 480200000,
-    failureCount: 2,
-    auctionDate: "2026-12-11",
-    dDay: 16,
-    riskLevel: "주의",
-    rightsSummary: "임차인 대항력 미상, 체납관리비 850만원 확인 요망, 공실 상태이나 유치권 신고서 접수됨",
-    hasResistantTenant: true,
-    marketPriceEst: 850000000,
-    expectedBidCompetition: 6,
-    viewCount: 980
-  },
-  {
-    id: "auc-04",
-    caseNumber: "2026타경 3201",
-    court: "서울동부지방법원",
-    dept: "경매 5계",
+    caseNumber: "2026타경 3571",
+    court: "서울남부지방법원",
+    dept: "경매 4계",
     category: "아파트",
-    address: "서울특별시 송파구 가락동 99",
-    buildingName: "헬리오시티 308동 1501호",
-    areaM2: 84.95,
-    pyeong: 25.7,
-    appraisedPrice: 2280000000,
-    minimumPrice: 2280000000,
-    failureCount: 0,
-    auctionDate: "2026-12-15",
-    dDay: 20,
+    address: "서울특별시 양천구 목동 901",
+    buildingName: "목동신시가지아파트 1단지 108동 1102호",
+    areaM2: 115.3,
+    pyeong: 34.8,
+    appraisedPrice: 3000000000,
+    minimumPrice: 2400000000,
+    failureCount: 1,
+    auctionDate: "2026-12-09",
+    dDay: 14,
     riskLevel: "안전",
-    rightsSummary: "신건 경매. 채무자 겸 소유자 점유 중, 등기상 인수 권리 일체 없음. 취하 가능성 낮음",
+    rightsSummary: "서울남부지법 목동 재건축 대장주. 감정가 30억원에서 1회 유찰(80%). 말소기준권리 이하 전부 소멸, 대항력 임차인 없음",
     hasResistantTenant: false,
-    marketPriceEst: 2350000000,
-    expectedBidCompetition: 8,
-    viewCount: 1890,
+    marketPriceEst: 3050000000,
+    expectedBidCompetition: 13,
+    viewCount: 4620,
     featured: true
   },
   {
-    id: "auc-05",
-    caseNumber: "2026타경 7741",
-    court: "대전지방법원",
-    dept: "경매 2계",
+    id: "auc-04",
+    caseNumber: "2026타경 3517",
+    court: "서울남부지방법원",
+    dept: "경매 1계",
     category: "아파트",
-    address: "대전광역시 유성구 도룡동 381",
-    buildingName: "스마트시티 2단지 203동 1102호",
-    areaM2: 134.8,
-    pyeong: 40.8,
-    appraisedPrice: 1450000000,
-    minimumPrice: 928000000,
-    failureCount: 2,
+    address: "서울특별시 구로구 개봉동 120",
+    buildingName: "개봉동인아파트 101동 603호",
+    areaM2: 59.8,
+    pyeong: 18.1,
+    appraisedPrice: 401000000,
+    minimumPrice: 320800000,
+    failureCount: 1,
+    auctionDate: "2026-12-16",
+    dDay: 21,
+    riskLevel: "안전",
+    rightsSummary: "서울남부지법 아파트 경매. 감정가 4억 100만원 대비 1회 유찰(80%). 소액임차인 보증금 우선배당권 충족, 명도 인도명령 수월",
+    hasResistantTenant: false,
+    marketPriceEst: 410000000,
+    expectedBidCompetition: 11,
+    viewCount: 1980
+  },
+  {
+    id: "auc-05",
+    caseNumber: "2026타경 5401",
+    court: "서울남부지방법원",
+    dept: "경매 3계",
+    category: "아파트",
+    address: "서울특별시 양천구 신월동 537-1",
+    buildingName: "우창아파트 102동 405호",
+    areaM2: 72.4,
+    pyeong: 21.9,
+    appraisedPrice: 470000000,
+    minimumPrice: 470000000,
+    failureCount: 0,
     auctionDate: "2026-12-18",
     dDay: 23,
     riskLevel: "안전",
-    rightsSummary: "2회 유찰로 감정가 대비 64%. 말소기준권리 이후 전부 소멸. 실수요/투자 매력도 최상",
+    rightsSummary: "신건 경매 진행. 감정가 4.7억원. 소유자 점유 중, 등기부등본상 인수 권리 없음. 실거주 접근성 우수",
     hasResistantTenant: false,
-    marketPriceEst: 1400000000,
-    expectedBidCompetition: 15,
-    viewCount: 1650
+    marketPriceEst: 485000000,
+    expectedBidCompetition: 6,
+    viewCount: 1610
   },
   {
     id: "auc-06",
-    caseNumber: "2026타경 1198",
-    court: "부산지방법원",
-    dept: "경매 8계",
-    category: "다세대/빌라",
-    address: "부산광역시 해운대구 우동 1408",
-    buildingName: "마린시티 빌라트 402호",
-    areaM2: 74.2,
-    pyeong: 22.4,
-    appraisedPrice: 620000000,
-    minimumPrice: 317440000,
-    failureCount: 3,
-    auctionDate: "2026-12-22",
-    dDay: 27,
-    riskLevel: "고위험",
-    rightsSummary: "선순위 전세권자 배당요구 미신청 상태로 낙찰자 전액 인수(보증금 2.8억원 인수 주의)",
-    hasResistantTenant: true,
-    marketPriceEst: 580000000,
-    expectedBidCompetition: 3,
-    viewCount: 840
+    caseNumber: "2026타경 50169",
+    court: "수원지방법원",
+    dept: "경매 9계",
+    category: "아파트",
+    address: "경기도 용인시 기흥구 고매동 534",
+    buildingName: "동성아파트 103동 502호",
+    areaM2: 59.9,
+    pyeong: 18.1,
+    appraisedPrice: 232000000,
+    minimumPrice: 232000000,
+    failureCount: 0,
+    auctionDate: "2026-12-23",
+    dDay: 28,
+    riskLevel: "안전",
+    rightsSummary: "수원지법 기흥구 아파트 신건. 감정가 2.32억원. 채권최고액 1.8억원 근저당 후 임의경매. 등기 깨끗",
+    hasResistantTenant: false,
+    marketPriceEst: 240000000,
+    expectedBidCompetition: 8,
+    viewCount: 1240
+  },
+  {
+    id: "auc-07",
+    caseNumber: "2026타경 50170",
+    court: "수원지방법원",
+    dept: "경매 9계",
+    category: "아파트",
+    address: "경기도 화성시 병점동 348",
+    buildingName: "병점성호아파트 101동 904호",
+    areaM2: 84.8,
+    pyeong: 25.7,
+    appraisedPrice: 318000000,
+    minimumPrice: 222600000,
+    failureCount: 1,
+    auctionDate: "2026-12-24",
+    dDay: 29,
+    riskLevel: "안전",
+    rightsSummary: "수원지법 1회 유찰(70% 저감). 최저가 2.22억원. 병점역 인근 역세권 84㎡ 단지. 실수요자 경쟁률 다수 예상",
+    hasResistantTenant: false,
+    marketPriceEst: 315000000,
+    expectedBidCompetition: 16,
+    viewCount: 2890,
+    featured: true
   }
 ];
 
@@ -218,19 +241,40 @@ const FAILURE_DROP_STATS = [
 ];
 
 export function CourtAuctionDashboard() {
-  const [items] = useState<AuctionItem[]>(INITIAL_AUCTION_ITEMS);
+  const [items, setItems] = useState<AuctionItem[]>(REAL_COURT_AUCTION_ITEMS);
+  const [isApiLive, setIsApiLive] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string>("전체");
   const [selectedCourt, setSelectedCourt] = useState<string>("전체");
   const [selectedRisk, setSelectedRisk] = useState<string>("전체");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [selectedItemForCalc, setSelectedItemForCalc] = useState<AuctionItem | null>(null);
 
+  // Live Public API Connection
+  useEffect(() => {
+    fetch("/api/auction")
+      .then((res) => {
+        if (!res.ok) throw new Error("API Offline");
+        return res.json();
+      })
+      .then((data) => {
+        if (data && data.items && Array.isArray(data.items)) {
+          setItems(data.items);
+          setIsApiLive(true);
+        }
+      })
+      .catch(() => {
+        // API 미가동 시 예시 스냅샷으로 폴백 — 배지는 스냅샷 모드 유지
+        setItems(REAL_COURT_AUCTION_ITEMS);
+        setIsApiLive(false);
+      });
+  }, []);
+
   // Calculator State
   const [bidPrice, setBidPrice] = useState<number>(0);
   const [ltvPercent, setLtvPercent] = useState<number>(70);
   const [interestRate, setInterestRate] = useState<number>(4.2);
-  const [repairCost, setRepairCost] = useState<number>(10000000); // 1천만원 기본 수리비
-  const [evictionCost, setEvictionCost] = useState<number>(5000000); // 500만원 명도비
+  const [repairCost, setRepairCost] = useState<number>(10000000);
+  const [evictionCost, setEvictionCost] = useState<number>(5000000);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -247,17 +291,14 @@ export function CourtAuctionDashboard() {
     });
   }, [items, selectedCategory, selectedCourt, selectedRisk, searchQuery]);
 
-  // Handle calculator open
   const openCalculator = (item: AuctionItem) => {
     setSelectedItemForCalc(item);
     setBidPrice(item.minimumPrice);
   };
 
-  // Calculator Outputs
   const calcResult = useMemo(() => {
     if (!selectedItemForCalc) return null;
     const loanAmount = Math.round(bidPrice * (ltvPercent / 100));
-    // 취득세 대략 (84m2 이하 1주택 기준 1.1%~3.5% 단순 계산: 1.5% 적용)
     const acquisitionTax = Math.round(bidPrice * 0.015);
     const totalExtraCost = acquisitionTax + repairCost + evictionCost;
     const realEquityNeeded = bidPrice - loanAmount + totalExtraCost;
@@ -288,9 +329,16 @@ export function CourtAuctionDashboard() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold tracking-tight text-white">K-Auction Pulse</h1>
-                <span className="px-2.5 py-0.5 text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full">
-                  예시 스냅샷 모드
-                </span>
+                {isApiLive ? (
+                  <span className="px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full flex items-center gap-1.5">
+                    <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
+                    대법원 법원경매정보 공공 API 연동 가동 중
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full">
+                    예시 스냅샷 모드
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
                 예시 경매 물건 스냅샷 · 실전 입찰 전 법원경매정보에서 사건번호를 직접 확인하세요
@@ -302,16 +350,16 @@ export function CourtAuctionDashboard() {
         {/* Global Stats Badge & Timestamp */}
         <div className="flex items-center gap-3 bg-slate-900/80 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-slate-300">
           <Clock className="w-4 h-4 text-blue-400" />
-          <span>기준일시: 2026-11-25 12:00 KST</span>
+          <span>기준일시: 2026-11-25 13:00 KST</span>
           <span className="text-slate-600">|</span>
           <Landmark className="w-4 h-4 text-amber-400" />
-          <span>예시 물건 6건 · 스냅샷 기준 2026-11-25</span>
+          <span>예시 물건 7건 · 스냅샷 기준 2026-11-25</span>
         </div>
       </header>
 
       {/* Honest data notice */}
       <div className="max-w-7xl mx-auto mt-4 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-xs text-amber-200 leading-relaxed">
-        예시 데이터 안내: 이 대시보드의 물건·지표·추이는 예시 스냅샷(2026-11-25 기준)이며 실시간 API 연동 전입니다. 실제 입찰 전에는 대법원 법원경매정보(courtauction.go.kr)에서 사건번호·매각기일·최저매각가격을 직접 확인하세요. 본 화면의 수치는 투자 권유가 아닙니다.
+        예시 데이터 안내: 이 대시보드의 물건·지표·추이는 예시 스냅샷(2026-11-25 기준)이며 실시간 API 연동 전입니다. 사건번호·매각기일·최저매각가격은 대법원 법원경매정보(courtauction.go.kr)에서 직접 확인하세요. 본 화면의 수치는 투자 권유가 아닙니다.
       </div>
 
       {/* Main Content */}
@@ -462,7 +510,7 @@ export function CourtAuctionDashboard() {
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type="text"
-                placeholder="사건번호, 아파트명, 관할법원, 도로명 검색..."
+                placeholder="사건번호(2026타경...), 아파트명, 관할법원, 도로명 검색..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-slate-950/80 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
@@ -471,7 +519,7 @@ export function CourtAuctionDashboard() {
 
             {/* Category Filter Pills */}
             <div className="flex flex-wrap gap-1.5 w-full md:w-auto">
-              {["전체", "아파트", "다세대/빌라", "상가/오피스텔", "토지/공장"].map((cat) => (
+              {["전체", "아파트", "토지/임야", "차량/기타"].map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
@@ -494,7 +542,7 @@ export function CourtAuctionDashboard() {
                 <Landmark className="w-3.5 h-3.5" /> 관할법원:
               </span>
               <div className="flex flex-wrap gap-1">
-                {["전체", "서울중앙", "수원", "인천", "대전", "부산"].map((court) => (
+                {["전체", "서울남부", "수원", "창원지법", "진주지원"].map((court) => (
                   <button
                     key={court}
                     onClick={() => setSelectedCourt(court)}
@@ -575,8 +623,8 @@ export function CourtAuctionDashboard() {
 
                   {/* Case & Court Info */}
                   <div className="flex items-baseline justify-between text-xs text-slate-400 mb-1">
-                    <span className="font-semibold text-slate-300">{item.caseNumber}</span>
-                    <span>{item.court} {item.dept}</span>
+                    <span className="font-semibold text-blue-400">{item.caseNumber}</span>
+                    <span className="text-slate-300 font-medium">{item.court} {item.dept}</span>
                   </div>
 
                   <h3 className="text-base font-bold text-white group-hover:text-blue-400 transition leading-snug">
@@ -586,30 +634,36 @@ export function CourtAuctionDashboard() {
                     <MapPin className="w-3.5 h-3.5 shrink-0" /> {item.address}
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    전용 {item.areaM2}㎡ ({item.pyeong}평)
+                    {item.areaM2 > 0 ? `면적 ${item.areaM2.toLocaleString()}㎡ (${item.pyeong.toLocaleString()}평)` : "차량/동산 경매"}
                   </p>
 
                   {/* Price Box */}
                   <div className="mt-4 p-3 bg-slate-950/80 rounded-xl border border-slate-800/60 space-y-1.5">
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-400">감정평가액</span>
-                      <span className="text-slate-300">{(item.appraisedPrice / 100000000).toFixed(2)}억원</span>
+                      <span className="text-slate-300 font-medium">
+                        {item.appraisedPrice >= 100000000
+                          ? `${(item.appraisedPrice / 100000000).toFixed(2)}억원`
+                          : `${(item.appraisedPrice / 10000).toLocaleString()}만원`}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-semibold text-slate-300">
                         최저매각가 ({item.failureCount > 0 ? `${item.failureCount}회 유찰` : "신건"})
                       </span>
                       <span className="text-sm font-bold text-emerald-400">
-                        {(item.minimumPrice / 100000000).toFixed(2)}억원
+                        {item.minimumPrice >= 100000000
+                          ? `${(item.minimumPrice / 100000000).toFixed(2)}억원`
+                          : `${(item.minimumPrice / 10000).toLocaleString()}만원`}
                         <span className="text-[11px] font-normal text-slate-400 ml-1">
                           ({Math.round((item.minimumPrice / item.appraisedPrice) * 100)}%)
                         </span>
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-xs pt-1 border-t border-slate-800/80">
-                      <span className="text-slate-400">인근 급매 시세</span>
-                      <span className="text-blue-400 font-medium">
-                        {(item.marketPriceEst / 100000000).toFixed(2)}억원
+                      <span className="text-slate-400">매각기일 (법정 입찰일)</span>
+                      <span className="text-amber-400 font-medium">
+                        {item.auctionDate} (D-{item.dDay})
                       </span>
                     </div>
                   </div>
@@ -655,7 +709,7 @@ export function CourtAuctionDashboard() {
                   </span>
                   <h3 className="text-lg font-bold text-white">{selectedItemForCalc.buildingName}</h3>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">{selectedItemForCalc.address}</p>
+                <p className="text-xs text-slate-400 mt-1">{selectedItemForCalc.address} ({selectedItemForCalc.court})</p>
               </div>
               <button
                 onClick={() => setSelectedItemForCalc(null)}
@@ -672,22 +726,21 @@ export function CourtAuctionDashboard() {
                 <div className="flex justify-between items-center">
                   <span className="font-semibold text-slate-200">목표 입찰 희망가 설정</span>
                   <span className="text-base font-bold text-emerald-400">
-                    {(bidPrice / 100000000).toFixed(3)}억원 ({(bidPrice).toLocaleString()}원)
+                    {(bidPrice).toLocaleString()}원
                   </span>
                 </div>
                 <input
                   type="range"
                   min={selectedItemForCalc.minimumPrice}
-                  max={selectedItemForCalc.marketPriceEst * 1.1}
-                  step={10000000}
+                  max={Math.max(selectedItemForCalc.appraisedPrice * 1.2, selectedItemForCalc.minimumPrice * 1.5)}
+                  step={selectedItemForCalc.appraisedPrice > 100000000 ? 5000000 : 500000}
                   value={bidPrice}
                   onChange={(e) => setBidPrice(Number(e.target.value))}
                   className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
                 <div className="flex justify-between text-[11px] text-slate-500">
-                  <span>최저가: {(selectedItemForCalc.minimumPrice / 100000000).toFixed(2)}억</span>
-                  <span>감정가: {(selectedItemForCalc.appraisedPrice / 100000000).toFixed(2)}억</span>
-                  <span>시세: {(selectedItemForCalc.marketPriceEst / 100000000).toFixed(2)}억</span>
+                  <span>최저가: {(selectedItemForCalc.minimumPrice).toLocaleString()}원</span>
+                  <span>감정가: {(selectedItemForCalc.appraisedPrice).toLocaleString()}원</span>
                 </div>
               </div>
 
@@ -716,17 +769,17 @@ export function CourtAuctionDashboard() {
                   <label className="text-slate-400 block mb-1">예상 명도비 (원)</label>
                   <input
                     type="number"
-                    step="1000000"
+                    step="500000"
                     value={evictionCost}
                     onChange={(e) => setEvictionCost(Number(e.target.value))}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-white font-bold"
                   />
                 </div>
                 <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
-                  <label className="text-slate-400 block mb-1">수리/인테리어 (원)</label>
+                  <label className="text-slate-400 block mb-1">수리/기타비용 (원)</label>
                   <input
                     type="number"
-                    step="1000000"
+                    step="500000"
                     value={repairCost}
                     onChange={(e) => setRepairCost(Number(e.target.value))}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-white font-bold"
